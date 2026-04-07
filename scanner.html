@@ -147,7 +147,7 @@
 
         try {
           await scanner.start(
-            { facingMode: "environment" },
+            { facingMode: { exact: "environment" } },
             {
               fps: 10,
               qrbox: { width: 280, height: 120 },
