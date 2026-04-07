@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Book Scanner Camera</title>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+      :root {
+        --bg: #071122;
+        --panel: #0f172a;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --border: #1f2937;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, #020617 0%, #0f172a 100%);
+        color: var(--text);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+      .wrap {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      .card {
+        background: rgba(15, 23, 42, 0.95);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      #reader {
+        width: 100%;
+        min-height: 280px;
+        border-radius: 14px;
+        overflow: hidden;
+        background: #000;
+      }
+      button, input {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid #334155;
+        background: #0b1220;
+        color: var(--text);
+        padding: 12px 14px;
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        font-weight: 600;
+        background: linear-gradient(135deg, #0284c7, #22c55e);
+      }
+      button.secondary {
+        background: #111827;
+        border: 1px solid #334155;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .row > * {
+        flex: 1 1 220px;
+      }
+      .status {
+        min-height: 24px;
+        margin-top: 10px;
+      }
+      .ok { color: #86efac; }
+      .err { color: #fca5a5; }
+      p, label { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Book Scanner Camera</h1>
+        <p>Scan the barcode here. After a successful scan, the ISBN is sent back to the main app tab.</p>
+      </div>
+
+      <div class="card">
+        <div id="reader"></div>
+        <div class="status" id="scanStatus"></div>
+        <div class="row" style="margin-top: 12px;">
+          <button class="secondary" id="startBtn">Start camera</button>
+          <button class="secondary" id="stopBtn">Stop camera</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <label for="isbn">Manual ISBN fallback</label>
+        <input id="isbn" placeholder="9780143127550">
+        <div class="row" style="margin-top: 12px;">
+          <button id="sendBtn">Send ISBN back</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let scanner = null;
+      let scannerStarted = false;
+      const params = new URLSearchParams(window.location.search);
+      const targetOrigin = params.get('targetOrigin') || '*';
+
+      function setStatus(text, cls = '') {
+        const el = document.getElementById('scanStatus');
+        el.textContent = text;
+        el.className = `status ${cls}`.trim();
+      }
+
+      function normalizeIsbn(value) {
+        return String(value || '').trim().replace(/[^0-9Xx]/g, '').toUpperCase();
+      }
+
+      function returnIsbn(isbn) {
+        const clean = normalizeIsbn(isbn);
+        if (!clean) {
+          setStatus('No ISBN to return.', 'err');
+          return;
+        }
+        if (window.opener) {
+          window.opener.postMessage({ type: 'book-scan', isbn: clean }, targetOrigin === '*' ? '*' : targetOrigin);
+          setStatus('Sent ISBN back: ' + clean + '. You can return to the previous tab.', 'ok');
+        } else {
+          setStatus('No opener tab found. Copy this ISBN manually: ' + clean, 'err');
+        }
+      }
+
+      function onScanSuccess(decodedText) {
+        const clean = normalizeIsbn(decodedText);
+        document.getElementById('isbn').value = clean;
+        setStatus('Detected: ' + clean, 'ok');
+        returnIsbn(clean);
+      }
+
+      function onScanFailure(_) {}
+
+      async function startScanner() {
+        if (scannerStarted) return;
+        if (!scanner) {
+          scanner = new Html5Qrcode('reader');
+        }
+        try {
+          const cameras = await Html5Qrcode.getCameras();
+          if (!cameras || !cameras.length) {
+            setStatus('No camera found.', 'err');
+            return;
+          }
+          await scanner.start(
+            cameras[0].id,
+            {
+              fps: 10,
+              qrbox: { width: 280, height: 120 },
+              formatsToSupport: [
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.UPC_A,
+                Html5QrcodeSupportedFormats.UPC_E,
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.CODE_39,
+              ],
+              experimentalFeatures: {
+                useBarCodeDetectorIfSupported: false,
+              },
+            },
+            onScanSuccess,
+            onScanFailure
+          );
+          scannerStarted = true;
+          setStatus('Camera started. Point it at the barcode.', 'ok');
+        } catch (err) {
+          setStatus('Could not start camera: ' + err, 'err');
+        }
+      }
+
+      async function stopScanner() {
+        if (!scanner || !scannerStarted) return;
+        try {
+          await scanner.stop();
+          await scanner.clear();
+          scannerStarted = false;
+          scanner = null;
+          setStatus('Camera stopped.', '');
+        } catch (err) {
+          setStatus('Could not stop camera cleanly: ' + err, 'err');
+        }
+      }
+
+      document.getElementById('startBtn').addEventListener('click', startScanner);
+      document.getElementById('stopBtn').addEventListener('click', stopScanner);
+      document.getElementById('sendBtn').addEventListener('click', () => {
+        returnIsbn(document.getElementById('isbn').value);
+      });
+    </script>
+  </body>
+</html>
