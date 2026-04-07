@@ -144,14 +144,10 @@
         if (!scanner) {
           scanner = new Html5Qrcode('reader');
         }
+
         try {
-          const cameras = await Html5Qrcode.getCameras();
-          if (!cameras || !cameras.length) {
-            setStatus('No camera found.', 'err');
-            return;
-          }
           await scanner.start(
-            cameras[0].id,
+            { facingMode: "environment" },
             {
               fps: 10,
               qrbox: { width: 280, height: 120 },
@@ -170,6 +166,7 @@
             onScanSuccess,
             onScanFailure
           );
+
           scannerStarted = true;
           setStatus('Camera started. Point it at the barcode.', 'ok');
         } catch (err) {
